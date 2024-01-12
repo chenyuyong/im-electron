@@ -1,4 +1,4 @@
-# v3-electron
+# im-project
 
 ## Project setup
 ```
