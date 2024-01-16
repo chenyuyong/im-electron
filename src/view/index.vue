@@ -76,6 +76,7 @@
         :editUserInfo="editUserInfo"
         :openLayer='openLayer'
         :openBlack="openBlack"
+        :fun_db_close="fun_db_close"
         >
       </userInfo>
       <groupInfo txt="群详情" v-if="menu.largePanel === 'groupInfo'"
@@ -116,9 +117,9 @@
               <div class="panel-time" v-if="item.uiContent?.send_time">
                 {{method.getTime(item.uiContent.send_time, 2) }}
               </div>
-              <!-- <div class="panel-time" >
+              <div class="panel-time" >
                 {{ item }} 
-              </div> -->
+              </div>
               <div class="panel-me" v-if="item.senderUserId === menu.userinfo.userId && item.uiContent?.type" txt="自己样式">
                 <div class="panel-group-box">
                   <!-- <h6 class="panel-group-sender">{{ item.uiContent.sender_id }}</h6> -->
@@ -446,7 +447,6 @@
               <i class="iconfont icon-wenjianjia1"></i>
             </el-upload>
             <!-- <i class="iconfont icon-tupian"></i> -->
-            <!-- <i class="iconfont icon-wenjianjia1" @click="getHistoryMsg"></i> -->
           </div>
           <div class="h-chat-box">
             <el-popover
@@ -576,9 +576,10 @@ const {
   contactsState, groupsList, friendList, selectTarget, setDisplayName, delFriendFn, sendTargetInfo, editMsg,
   session, getSessionList, getUserSessionList, selectContacts, 
   visiblePopover, delSession, topping, disturb,
-  chat, scrollDiv, sendMsg,  getHistoryMsg, openVideo, queryMsg, msgChange,aGroupMember,
+  chat, scrollDiv, sendMsg, openVideo, queryMsg, msgChange,aGroupMember,
   beforeUploadImg,beforeUploadFile,beforeUploadVideo,
   referFn,closeRefer,deleteFn,forwardFn,recallFn,
+  fun_db_close,
 } = imData();
 init()
 </script>

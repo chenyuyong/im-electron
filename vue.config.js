@@ -11,7 +11,7 @@ module.exports = defineConfig({
       threshold: 10240,
       minRatio: 0.8
     }));
-    config.devtool = false;
+    config.devtool = "source-map";
     return {
       output: {
         filename: `static/js/[name].[contenthash].js`,

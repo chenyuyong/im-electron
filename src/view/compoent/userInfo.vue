@@ -239,6 +239,10 @@ const props = defineProps({
     type: Function,
     default:()=>{}
   },
+  fun_db_close:{
+    type: Function,
+    default:()=>{}
+  },
   openBlack:{
     type: Function,
     default:()=>{}
@@ -250,17 +254,21 @@ const inputRef = ref('')
 const inputShow = ref(false)
 const inputFocus = ref(false)
 
-const quit = () =>{
-  api.quit().then(res => {
+const quit =  () => {
+  api.quit().then(async res => {
     if(res.code === 0 || res.code === 100){
       localStorage.setItem('userinfo', '')
       localStorage.setItem('token', '')
       localStorage.setItem('userId', '')
       localStorage.setItem('groupsArr', '')
       localStorage.setItem('friendArr', '')
+      localStorage.setItem('groupsVersion', '')
+      localStorage.setItem('friendVersion', '')
+      await props.fun_db_close()
       router.push({
         path: '/login',
       })
+      
     }
   }).catch(err => {
 

@@ -1,4 +1,4 @@
-import { ref,reactive, onMounted, onUnmounted, onBeforeUnmount, nextTick} from 'vue'
+import { ref,reactive,toRaw, onMounted, onUnmounted, onBeforeUnmount, nextTick} from 'vue'
 
 import { v4 as uuidv4 } from 'uuid';
 import api from "../../api/index";
@@ -6,7 +6,9 @@ import method from '../../script/method'
 import { ElMessage } from "element-plus";
 import { Promise } from 'core-js';
 import {useRouter} from 'vue-router'
+import IndexDBCache from "./uIndexDB";
 const RongIMLib = require('@rongcloud/imlib-next')
+let dbCache = null;
 export function imData() {
   const router = useRouter()
   const Events = RongIMLib.Events
@@ -24,7 +26,7 @@ export function imData() {
     // console.log("userSig", menu.userinfo.userSig)
     RongIMLib.connect(menu.userinfo?.userSig).then(res => {
       if (res.code === RongIMLib.ErrorCode.SUCCESS) {
-        console.log('链接成功, 链接用户 id 为:4444 ', res.data.userId);
+        // console.log('链接成功, 链接用户 id 为:4444 ', res.data.userId);
         getSessionList()
       } else {
         console.warn('链接失败40-400, code:55555', res.code)
@@ -32,29 +34,30 @@ export function imData() {
     })
     whiteCheck()
   }
-  const listener = (evt) => { // 监听消息后处理
+  const listener = async (evt) => { // 监听消息后处理
     console.log(evt.messages,'开启监听消息333333')
+    const msgArr = evt.messages.map(item => {
+      let uiContent = method.jsonType(item.content.content) ? JSON.parse(item.content.content) : item.content.content
+      if(uiContent?.type === 'prompt' || uiContent?.type === 'cmd'){ // 提示消息或信令消息-解析data反序列化
+        uiContent.content.jsonData = method.jsonType(uiContent.content.data) ? JSON.parse(uiContent.content.data) : uiContent.content.data 
+        if(uiContent?.content.cmd === 'MessageRecall' ){
+          chat.recallMsgArr.push(uiContent)
+        }
+        // cmd ----- 
+        if(uiContent?.content.operation === 'GroupRename' ){
+          session.currentContact.name = uiContent.content?.jsonData?.groupName
+        }
+        if(uiContent?.content?.operation === 'GroupAdd' || uiContent?.content.operation === 'GroupKicked' ){
+          uiContent.content.desc = uiContent.content?.jsonData?.targetUserDisplayNames?.join('、') + uiContent.content.desc
+        }
+      }
+      return {
+        ...item,
+        uiContent: uiContent
+      }
+    })
+    writeDbMsg('chatTable', evt.messages[0]['targetId'], ...msgArr)
     if(evt.messages[0]['targetId'] === session.currentContact.targetId){ // 当前聊天对象
-      const msgArr = evt.messages.map(item => {
-        let uiContent = method.jsonType(item.content.content) ? JSON.parse(item.content.content) : item.content.content
-        if(uiContent?.type === 'prompt' || uiContent?.type === 'cmd'){ // 提示消息或信令消息-解析data反序列化
-          uiContent.content.jsonData = method.jsonType(uiContent.content.data) ? JSON.parse(uiContent.content.data) : uiContent.content.data 
-          if(uiContent?.content.cmd === 'MessageRecall' ){
-            chat.recallMsgArr.push(uiContent)
-          }
-          // cmd ----- 
-          if(uiContent?.content.operation === 'GroupRename' ){
-            session.currentContact.name = uiContent.content?.jsonData?.groupName
-          }
-          if(uiContent?.content?.operation === 'GroupAdd' || uiContent?.content.operation === 'GroupKicked' ){
-            uiContent.content.desc = uiContent.content?.jsonData?.targetUserDisplayNames?.join('、') + uiContent.content.desc
-          }
-        }
-        return {
-          ...item,
-          uiContent: uiContent
-        }
-      })
       chat.chatList.push(...msgArr)
       if(chat.scrollBottom){ // 如果在聊天底部，滚动条自动滚动
         // console.log('chat.scrollBottom',chat.scrollBottom)
@@ -159,7 +162,7 @@ export function imData() {
   async function getSessionList(){ // 获取会话列表
     await RongIMLib.getConversationList().then(({ code, data: conversationList }) => {
       if (code === 0) {
-        console.log('融云内置 获取会话列表成功6666', conversationList );
+        // console.log('融云内置 获取会话列表成功6666', conversationList );
         let reg = /^[GF]/;
         session.promises = [];
         session.rongList = conversationList.filter(item => {
@@ -193,12 +196,16 @@ export function imData() {
       }
     });
     if(!localStorage.getItem('groupsArr')){
-      groupsList(0)
+      nextTick(()=>{
+        groupsList(0)
+      })
     } else {
       contactsState.groupsArr = JSON.parse(localStorage.getItem('groupsArr'))
     }
     if(!localStorage.getItem('friendArr')) {
-      friendList(0)
+      nextTick(()=>{
+        friendList(0)
+      })
     }else{
       contactsState.friendArr = JSON.parse(localStorage.getItem('friendArr'))
     }
@@ -222,7 +229,7 @@ export function imData() {
       pageSize: 250,
       totalPage: 1,
       totalSize: 3,
-    },  
+    },
   })
   const selectTarget = (target, type, pageNow) => { // 选择-联系目标-详情页
     
@@ -271,6 +278,7 @@ export function imData() {
           if(item.id === session.currentFriend.id){
             arr[key] = {...session.currentFriend, displayName:obj.displayName}
             session.currentFriend = {...session.currentFriend, displayName:obj.displayName}
+            // dbCache.Record_Update('friendTable', toRaw(arr[key]))
           }
         })
         // console.log(contactsState.friendArr)
@@ -317,10 +325,10 @@ export function imData() {
             }
           })
         })
-        console.log('融云id =>查念念后台-会话列表头像', session.uiList)
+        // console.log('融云id =>查念念后台-会话列表头像', session.uiList)
         // console.log('融云id =>查念念后台-会话列表头像', session.visibles)
         session.currentContact = session.uiList[0] 
-        getHistoryMsg(true, null) // 查询第一个用户历史聊天记录
+        // getHistoryMsg(true, null) // 查询第一个用户历史聊天记录
         if(session.currentContact.type === 2){ // type 1:用户 2:群组
           getMemberList({
             groupId: session.currentContact.targetId,
@@ -344,7 +352,7 @@ export function imData() {
     session.currentContact = item
     chat.chatList = []
     menu.largePanel = 'chat'
-    getHistoryMsg(true, null)
+    // getHistoryMsg(true, null)
     if(session.currentContact.type === 2){ // type 1:用户 2:群组
       getMemberList({
         groupId: session.currentContact.targetId,
@@ -495,7 +503,13 @@ export function imData() {
   }
   const chat = reactive({ // 聊天数据
     message: '',
-    chatList: [], // 获取到的当前聊天用户的消息列表
+    page: {
+      currentChatFull: [], // 当前聊天对象全量
+      pageNow: 1,
+      pageSize: 20,
+      topIndex: 0 
+    },
+    chatList: [], // 获取到的当前聊天用户的消息列表 - ui
     hasMore: false, // 是否还有历史消息可获取
     dialogVisible: false,
     videoUrl: '',
@@ -645,10 +659,14 @@ export function imData() {
     console.log(JSON.stringify(msgFormat))
     const message = new RongIMLib.TextMessage({ content: JSON.stringify(msgFormat) })
     // 发送消息
-    RongIMLib.sendMessage(conversation, message).then(({ code, data }) => {
+    RongIMLib.sendMessage(conversation, message).then(async ({ code, data }) => {
       if (code === 0) {
         console.log('消息发送成功80：', data)
         if(msgFormat.receiver_id === conversation.targetId){
+          writeDbMsg('chatTable', conversation.targetId, {
+            ...data,
+            uiContent: msgFormat
+          })
           chat.chatList.push({
             ...data,
             uiContent: msgFormat
@@ -816,6 +834,28 @@ export function imData() {
     }
     console.log(uiContent)
   }
+  const fun_record_get = async (tableName, key) =>{ // getBeforeMsg 获取之前消息
+    chat.currentChatFull = await dbCache.Record_Get(tableName, key)
+    console.log('获取之前消息', aObj, aObj?.arr?.length)
+    chat.chatList = chat.currentChatFull.slice(20)
+  }
+  const writeDbMsg = async (tableName, targetId, itemMsg) => { // 写入数据库消息
+    let aObj = await dbCache.Record_Get(tableName, targetId)
+    console.log('写入数据库消息-有修改改，没有增', aObj, aObj?.arr)
+    debugger
+    if (aObj?.arr) {
+      aObj.arr.push(itemMsg)
+      dbCache.Record_Update('chatTable', {
+        targetId: targetId,
+        arr: aObj.arr
+      })
+    } else {
+      dbCache.Record_Add_Obj('chatTable', {
+        targetId: targetId,
+        arr: [itemMsg]
+      }) 
+    }
+  }
   
   const getHistoryMsg = (first, time) => { // 获取历史消息记录 (是否第一次，最上一条消息时间戳)
     const conversation = {
@@ -873,7 +913,7 @@ export function imData() {
           scrollDiv.value?.scrollTo({ top: (scrollHeightNow - scrollHeightLast) });
         });
       }
-      console.log('获取历史消息成功90', result.data.list,chat.chatList, chat.hasMore);
+      // console.log('获取历史消息成功90', result.data.list,chat.chatList, chat.hasMore);
     }).catch(error => {
       console.log('获取历史消息失败90-400', error, error.msg);
     });
@@ -887,7 +927,7 @@ export function imData() {
           // console.log("name====", res.data[item])
           chat.groupEnum[res.data[item].userId]  = res.data[item]
         }
-        console.log("chat.groupEnum====", chat.groupEnum)
+        // console.log("chat.groupEnum====", chat.groupEnum)
       } else {
         console.log("memberList 400", res)
       }
@@ -917,6 +957,9 @@ export function imData() {
     // console.log(menu.userinfo)
   }
   const menuOption = (num) => { // 进入聊天面板
+    // let a = dbCache.Record_GetAll()
+    // console.log("进入聊天面板", a)
+    // dbCache.DB_Init('44d7751067f90bb0c8e204e9eef1d9d4DB')
     if(menu.active === num) return
     if(num === 2){
       menu.largePanel = 'newFriend'
@@ -1207,6 +1250,12 @@ export function imData() {
             res.data?.friendList.forEach(item => {
               // status 好友状态(20=同意，30=删除)
               const index = contactsState.friendArr.findIndex((obj) => obj.id === item.id);
+              // if(index < 0){ // 没有数据添加
+              //   dbCache.Record_Add_Obj('friendTable', toRaw(item))
+              // } else { // 更新数据
+              //   dbCache.Record_Update('friendTable', toRaw(item))
+              //   contactsState.friendArr.splice(index,1,item)
+              // }
               if(item.status === 20) {
                 if(index < 0){ // 没有数据添加
                   contactsState.friendArr.push(item)
@@ -1223,6 +1272,7 @@ export function imData() {
         } else {
           contactsState.friendArr = res.data.friendList
           contactsState.friendVersion = res.data.version
+          // dbCache.Record_Add_Arr('friendTable', toRaw(contactsState.friendArr ))
         }
         localStorage.setItem('friendArr', JSON.stringify(contactsState.friendArr))
         localStorage.setItem('friendVersion', contactsState.friendVersion)
@@ -1261,6 +1311,11 @@ export function imData() {
         localStorage.setItem('groupsVersion', contactsState.groupsVersion)
       }
     })
+  }
+  function fun_db_close() { // 关闭数据库
+    console.log("fun_db_close")
+    dbCache.DB_Close()
+    // dbCache.DB_Remove()
   }
   const msgChange = (e) => { // 监听@
     // console.log('msgChange', e)
@@ -1322,7 +1377,7 @@ export function imData() {
   const scrollFn = function(){ // 聊天面板-滚动条
     const scrollTop = scrollDiv.value?.scrollY || scrollDiv.value?.scrollTop
     if(scrollTop < 10 && chat.hasMore){ // 滚动条离顶部还有10px，并且还有历史记录时，加载历史记录
-      getHistoryMsg(false, chat.chatList && chat.chatList[0]?.uiContent?.send_time)
+      // getHistoryMsg(false, chat.chatList && chat.chatList[0]?.uiContent?.send_time)
     }
 
     //变量 聊天框Height是可视区的高度
@@ -1333,7 +1388,7 @@ export function imData() {
     if(scrollTop+windowHeight==scrollHeight){
       //写后台加载数据的函数
       chat.scrollBottom = true
-      console.log("距顶部"+scrollTop+"可视区高度"+windowHeight+"滚动条总高度"+scrollHeight);
+      // console.log("距顶部"+scrollTop+"可视区高度"+windowHeight+"滚动条总高度"+scrollHeight);
     } else {
       chat.scrollBottom = false
     }
@@ -1342,6 +1397,8 @@ export function imData() {
   onMounted(() => {
     // 滚动事件
     scrollDiv.value?.addEventListener('scroll', throttleFn);
+    let db = localStorage.getItem('userId') + 'DB'
+    dbCache = new IndexDBCache(db);
   })
   onUnmounted(() => {})
   onBeforeUnmount(()=>{
@@ -1356,9 +1413,10 @@ export function imData() {
     contactsState, groupsList, friendList, selectTarget, setDisplayName, delFriendFn, sendTargetInfo, editMsg, // 联系人
     session, getSessionList, getUserSessionList, selectContacts,
     visiblePopover, delSession,  topping, disturb, // 会话右键
-    chat, scrollDiv, sendMsg,  getHistoryMsg, openVideo,queryMsg,msgChange,aGroupMember,
+    chat, scrollDiv, sendMsg, openVideo,queryMsg,msgChange,aGroupMember,
     beforeUploadImg,beforeUploadFile,beforeUploadVideo,
     referFn,closeRefer,deleteFn,forwardFn,recallFn,
+    fun_db_close,
   }
 }
 // export default api
